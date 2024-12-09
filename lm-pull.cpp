@@ -1,6 +1,6 @@
 #include <curl/curl.h>
 #include <sys/stat.h>
-#include <fstream>
+#include <cstdio>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -18,15 +18,19 @@ bool file_exists(const std::string& name) {
 
 // Function to get the size of a file
 size_t get_file_size(const std::string& filename) {
-  std::ifstream file(filename, std::ios::binary | std::ios::ate);
-  return file.tellg();
+  FILE* file = fopen(filename.c_str(), "rb");
+  if (!file)
+    return 0;
+  fseek(file, 0, SEEK_END);
+  size_t size = ftell(file);
+  fclose(file);
+  return size;
 }
 
 // Function to write data to a file
 static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
-  std::ofstream* out = static_cast<std::ofstream*>(stream);
-  out->write(static_cast<char*>(ptr), size * nmemb);
-  return size * nmemb;
+  FILE* out = static_cast<FILE*>(stream);
+  return fwrite(ptr, size, nmemb, out);
 }
 
 // Function to capture data into a string
@@ -42,8 +46,12 @@ int progress_callback(void* ptr,
                       curl_off_t now_downloaded,
                       curl_off_t,
                       curl_off_t) {
+  const size_t* file_size = static_cast<size_t*>(ptr);
   if (total_to_download <= 0)
     return 0;
+
+  total_to_download += *file_size;
+  now_downloaded += *file_size;
   int percentage = static_cast<int>((now_downloaded * 100) / total_to_download);
   fprintf(stderr, "\rProgress: %d%% |", percentage);
   int pos = (percentage / 5);
@@ -53,6 +61,7 @@ int progress_callback(void* ptr,
     else
       fprintf(stderr, " ");
   }
+
   fprintf(stderr, "| %llu/%llu bytes", now_downloaded, total_to_download);
   fflush(stderr);
   return 0;
@@ -72,23 +81,24 @@ void download(const std::string& url,
       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, capture_data);
       curl_easy_setopt(curl, CURLOPT_WRITEDATA, response_str);
     } else {
-      std::ofstream out(output_file, std::ios::binary | std::ios::app);
+      FILE* out = fopen(output_file.c_str(), "ab");
       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
     // Check if file already exists and set the resume point
+    size_t file_size = 0;
     if (file_exists(output_file)) {
-      size_t file_size = get_file_size(output_file);
-      fprintf(stderr, "Resuming %s byte: %zu\n", output_file.c_str(), file_size);
+      file_size = get_file_size(output_file);
       curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
                        static_cast<curl_off_t>(file_size));
     }
 
     if (progress) {
       curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+      curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &file_size);
       curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
     }
 
