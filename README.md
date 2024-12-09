@@ -22,12 +22,12 @@ lm-pull <model-url>
 ```
 - `<model-url>`: The URL of the model to download. Supported URL schemes:
   - `https://`: Direct URL to the model file.
-  - `hf://` or `huggingface://`: URL to a Hugging Face model.
+  - `hf://` or `huggingface://`: URL to a HuggingFace model.
   - `ollama://`: URL to an Ollama model. (also the default)
 
 ## Example
 
-To download a model from Hugging Face:
+To download a model from HuggingFace:
 ```sh
 lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q3_K_S.gguf
 ```
