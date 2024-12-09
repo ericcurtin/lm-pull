@@ -25,6 +25,13 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
     return size * nmemb;
 }
 
+// Function to capture data into a string
+static size_t capture_data(void* ptr, size_t size, size_t nmemb, void* stream) {
+    std::string* str = static_cast<std::string*>(stream);
+    str->append(static_cast<char*>(ptr), size * nmemb);
+    return size * nmemb;
+}
+
 // Function to display progress
 int progress_callback(void* ptr, curl_off_t total_to_download, curl_off_t now_downloaded, curl_off_t, curl_off_t) {
     if (total_to_download <= 0) return 0;
@@ -41,18 +48,24 @@ int progress_callback(void* ptr, curl_off_t total_to_download, curl_off_t now_do
 }
 
 // Function to download a file using libcurl
-void download(const std::string& url, const std::vector<std::string>& headers, const std::string& output_file, const bool progress) {
+void download(const std::string& url, const std::vector<std::string>& headers, const std::string& output_file, const bool progress, std::string* response_str = nullptr) {
     CURL* curl;
     CURLcode res;
     curl = curl_easy_init();
     if(curl) {
-        std::ofstream out(output_file, std::ios::binary);
+        if (response_str) {
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, capture_data);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, response_str);
+        } else {
+            std::ofstream out(output_file, std::ios::binary);
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+        }
+
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
         if (progress) {
-          curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-          curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
+            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+            curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
         }
 
         if (!headers.empty()) {
@@ -95,12 +108,10 @@ void main_function(const std::string& model) {
         std::vector<std::string> headers = {"--header", accept_header};
         std::string manifest_url = "https://registry.ollama.ai/v2/" + model_trimmed + "/manifests/" + model_tag;
 
-        download(manifest_url, headers, "manifest.json", false);
+        std::string manifest_str;
+        download(manifest_url, headers, "", false, &manifest_str);
 
-        std::ifstream manifest_file("manifest.json");
-        nlohmann::json manifest;
-        manifest_file >> manifest;
-        manifest_file.close();
+        nlohmann::json manifest = nlohmann::json::parse(manifest_str);
 
         std::string layer;
         for (const auto& l : manifest["layers"]) {
@@ -124,3 +135,4 @@ int main(int argc, char* argv[]) {
     main_function(argv[1]);
     return 0;
 }
+
