@@ -25,8 +25,23 @@ static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
     return size * nmemb;
 }
 
+// Function to display progress
+int progress_callback(void* ptr, curl_off_t total_to_download, curl_off_t now_downloaded, curl_off_t, curl_off_t) {
+    if (total_to_download <= 0) return 0;
+    int percentage = static_cast<int>((now_downloaded * 100) / total_to_download);
+    std::cerr << "\r" << "Progress: " << percentage << "% |";
+    int pos = (percentage / 2);
+    for (int i = 0; i < 50; ++i) {
+        if (i < pos) std::cerr << "█";
+        else std::cerr << " ";
+    }
+    std::cerr << "| " << now_downloaded << "/" << total_to_download << " bytes";
+    std::cerr.flush();
+    return 0;
+}
+
 // Function to download a file using libcurl
-void download(const std::string& url, const std::vector<std::string>& headers, const std::string& output_file) {
+void download(const std::string& url, const std::vector<std::string>& headers, const std::string& output_file, const bool progress) {
     CURL* curl;
     CURLcode res;
     curl = curl_easy_init();
@@ -35,6 +50,11 @@ void download(const std::string& url, const std::vector<std::string>& headers, c
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+        if (progress) {
+          curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+          curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
+        }
+
         if (!headers.empty()) {
             struct curl_slist* chunk = NULL;
             for (const auto& header : headers) {
@@ -56,7 +76,7 @@ void download(const std::string& url, const std::vector<std::string>& headers, c
 void main_function(const std::string& model) {
     std::string bn = basename(model);
     if (model.rfind("https://", 0) == 0) {
-        download(model, {}, bn);
+        download(model, {}, bn, true);
     } else if (model.rfind("ollama://", 0) == 0) {
         std::string model_trimmed = model.substr(9);
         if (model_trimmed.find('/') == std::string::npos) {
@@ -71,12 +91,11 @@ void main_function(const std::string& model) {
         }
 
         std::string model_bn = basename(model_trimmed);
-        std::cout << "Pulling manifest for " << model_trimmed << ":" << model_tag << std::endl;
         std::string accept_header = "Accept: application/vnd.docker.distribution.manifest.v2+json";
         std::vector<std::string> headers = {"--header", accept_header};
         std::string manifest_url = "https://registry.ollama.ai/v2/" + model_trimmed + "/manifests/" + model_tag;
 
-        download(manifest_url, headers, "manifest.json");
+        download(manifest_url, headers, "manifest.json", false);
 
         std::ifstream manifest_file("manifest.json");
         nlohmann::json manifest;
@@ -91,9 +110,8 @@ void main_function(const std::string& model) {
             }
         }
 
-        std::cout << "Pulling blob " << layer << std::endl;
         std::string blob_url = "https://registry.ollama.ai/v2/" + model_trimmed + "/blobs/" + layer;
-        download(blob_url, headers, model_bn);
+        download(blob_url, headers, model_bn, true);
     }
 }
 
