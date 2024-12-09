@@ -23,7 +23,7 @@ lm-pull <model-url>
 - `<model-url>`: The URL of the model to download. Supported URL schemes:
   - `https://`: Direct URL to the model file.
   - `hf://` or `huggingface://`: URL to a Hugging Face model.
-  - `ollama://`: URL to an Ollama model.
+  - `ollama://`: URL to an Ollama model. (also the default)
 
 ## Example
 
