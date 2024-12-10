@@ -5,158 +5,34 @@
 #include <string>
 #include <vector>
 
+#define printe(...)               \
+  do {                            \
+    fprintf(stderr, __VA_ARGS__); \
+  } while (0)
+
 struct progress_data {
   size_t file_size = 0;
   bool printed = false;
 };
 
+struct FileDeleter {
+  void operator()(FILE* file) const {
+    if (file) {
+      fclose(file);
+    }
+  }
+};
+
+typedef std::unique_ptr<FILE, FileDeleter> FILE_ptr;
+
 // Function to get the basename of a path
 static std::string basename(const std::string& path) {
-  return path.substr(path.find_last_of("/\\") + 1);
-}
-
-// Function to check if a file exists
-static bool file_exists(const std::string& name) {
-  struct stat buffer;
-  return (stat(name.c_str(), &buffer) == 0);
-}
-
-// Function to get the size of a file
-static size_t get_file_size(const std::string& filename) {
-  FILE* file = fopen(filename.c_str(), "rb");
-  if (!file)
-    return 0;
-  fseek(file, 0, SEEK_END);
-  size_t size = ftell(file);
-  fclose(file);
-  return size;
-}
-
-// Function to write data to a file
-static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
-  FILE* out = static_cast<FILE*>(stream);
-  return fwrite(ptr, size, nmemb, out);
-}
-
-// Function to capture data into a string
-static size_t capture_data(void* ptr, size_t size, size_t nmemb, void* stream) {
-  std::string* str = static_cast<std::string*>(stream);
-  str->append(static_cast<char*>(ptr), size * nmemb);
-  return size * nmemb;
-}
-
-// Function to display progress
-static int progress_callback(void* ptr,
-                             curl_off_t total_to_download,
-                             curl_off_t now_downloaded,
-                             curl_off_t,
-                             curl_off_t) {
-  progress_data* data = static_cast<progress_data*>(ptr);
-  if (total_to_download <= 0)
-    return 0;
-
-  total_to_download += data->file_size;
-  now_downloaded += data->file_size;
-  if (now_downloaded >= total_to_download)
-    return 0;
-
-  int percentage = static_cast<int>((now_downloaded * 100) / total_to_download);
-  fprintf(stderr, "\rProgress: %d%% |", percentage);
-  int pos = (percentage / 5);
-  for (int i = 0; i < 20; ++i) {
-    if (i < pos)
-      fprintf(stderr, "█");
-    else
-      fprintf(stderr, " ");
+  const size_t pos = path.find_last_of("/\\");
+  if (pos == std::string::npos) {
+    return path;
   }
 
-  fprintf(stderr, "| %llu/%llu bytes", now_downloaded, total_to_download);
-  fflush(stderr);
-  data->printed = true;
-
-  return 0;
-}
-
-static CURL* init_curl() {
-  return curl_easy_init();
-}
-
-static void set_write_options(CURL* curl,
-                              const std::string& output_file,
-                              std::string* response_str) {
-  if (response_str) {
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, capture_data);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, response_str);
-  } else {
-    FILE* out = fopen(output_file.c_str(), "ab");
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
-  }
-}
-
-static void set_resume_point(CURL* curl, const std::string& output_file) {
-  size_t file_size = 0;
-  if (file_exists(output_file)) {
-    file_size = get_file_size(output_file);
-    curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
-                     static_cast<curl_off_t>(file_size));
-  }
-}
-
-static void set_progress_options(CURL* curl,
-                                 const bool progress,
-                                 progress_data& data) {
-  if (progress) {
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &data);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
-  }
-}
-
-static void set_headers(CURL* curl, const std::vector<std::string>& headers) {
-  if (!headers.empty()) {
-    struct curl_slist* chunk = NULL;
-    for (const auto& header : headers)
-      chunk = curl_slist_append(chunk, header.c_str());
-
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-  }
-}
-
-static void perform_curl(CURL* curl, const std::string& url) {
-  CURLcode res;
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-  curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "https");
-  curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-
-  res = curl_easy_perform(curl);
-  if (res != CURLE_OK) {
-    fprintf(stderr, "curl_easy_perform() failed: %s\n",
-            curl_easy_strerror(res));
-  }
-}
-
-static void download(const std::string& url,
-                     const std::vector<std::string>& headers,
-                     const std::string& output_file,
-                     const bool progress,
-                     std::string* response_str = nullptr) {
-  CURL* curl = init_curl();
-  if (curl) {
-    set_write_options(curl, output_file, response_str);
-    set_resume_point(curl, output_file);
-    progress_data data;
-    data.file_size = get_file_size(output_file);
-    set_progress_options(curl, progress, data);
-    set_headers(curl, headers);
-    perform_curl(curl, url);
-
-    if (data.printed)
-      fprintf(stderr, "\n");
-
-    curl_easy_cleanup(curl);
-  }
+  return path.substr(pos + 1);
 }
 
 static bool starts_with(const std::string& str, const std::string& prefix) {
@@ -173,29 +49,196 @@ static int remove_proto(std::string& model_) {
   return 0;
 }
 
-static int huggingface_dl(const std::string& model,
-                          const std::vector<std::string> headers,
-                          const std::string& bn) {
+class CurlWrapper {
+ public:
+  int init(const std::string& url,
+           const std::vector<std::string>& headers,
+           const std::string& output_file,
+           const bool progress,
+           std::string* response_str = nullptr) {
+    std::string output_file_partial;
+    curl = curl_easy_init();
+    if (!curl) {
+      return 1;
+    }
+
+    progress_data data;
+    FILE_ptr out;
+    if (!output_file.empty()) {
+      output_file_partial = output_file + ".partial";
+      out.reset(fopen(output_file_partial.c_str(), "ab"));
+    }
+
+    set_write_options(response_str, out);
+    data.file_size = set_resume_point(output_file_partial);
+    set_progress_options(progress, data);
+    set_headers(headers);
+    perform(url);
+    if (!output_file.empty()) {
+      std::filesystem::rename(output_file_partial, output_file);
+    }
+
+    if (data.printed) {
+      printe("\n");
+    }
+
+    return 0;
+  }
+
+  ~CurlWrapper() {
+    if (chunk) {
+      curl_slist_free_all(chunk);
+    }
+
+    if (curl) {
+      curl_easy_cleanup(curl);
+    }
+  }
+
+ private:
+  CURL* curl = nullptr;
+  struct curl_slist* chunk = nullptr;
+
+  void set_write_options(std::string* response_str, const FILE_ptr& out) {
+    if (response_str) {
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, capture_data);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, response_str);
+    } else {
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, out.get());
+    }
+  }
+
+  size_t set_resume_point(const std::string& output_file) {
+    size_t file_size = 0;
+    if (std::filesystem::exists(output_file)) {
+      file_size = std::filesystem::file_size(output_file);
+      curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
+                       static_cast<curl_off_t>(file_size));
+    }
+
+    return file_size;
+  }
+
+  void set_progress_options(bool progress, progress_data& data) {
+    if (progress) {
+      curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+      curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &data);
+      curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
+    }
+  }
+
+  void set_headers(const std::vector<std::string>& headers) {
+    if (!headers.empty()) {
+      if (chunk) {
+        curl_slist_free_all(chunk);
+        chunk = 0;
+      }
+
+      for (const auto& header : headers) {
+        chunk = curl_slist_append(chunk, header.c_str());
+      }
+
+      curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+    }
+  }
+
+  void perform(const std::string& url) {
+    CURLcode res;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_DEFAULT_PROTOCOL, "https");
+    curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+      printe("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+  }
+
+  static int progress_callback(void* ptr,
+                               curl_off_t total_to_download,
+                               curl_off_t now_downloaded,
+                               curl_off_t,
+                               curl_off_t) {
+    progress_data* data = static_cast<progress_data*>(ptr);
+    if (total_to_download <= 0) {
+      return 0;
+    }
+
+    total_to_download += data->file_size;
+    now_downloaded += data->file_size;
+    int percentage =
+        static_cast<int>((now_downloaded * 100) / total_to_download);
+    printe("\rProgress: %d%% |", percentage);
+    int pos = (percentage / 5);
+    for (int i = 0; i < 20; ++i) {
+      if (i < pos) {
+        printe("█");
+      } else {
+        printe(" ");
+      }
+    }
+
+    printe("| %li/%li bytes", now_downloaded, total_to_download);
+    fflush(stderr);
+    data->printed = true;
+
+    return 0;
+  }
+
+  // Function to write data to a file
+  static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
+    FILE* out = static_cast<FILE*>(stream);
+    return fwrite(ptr, size, nmemb, out);
+  }
+
+  // Function to capture data into a string
+  static size_t capture_data(void* ptr,
+                             size_t size,
+                             size_t nmemb,
+                             void* stream) {
+    std::string* str = static_cast<std::string*>(stream);
+    str->append(static_cast<char*>(ptr), size * nmemb);
+    return size * nmemb;
+  }
+};
+
+int download(const std::string& url,
+             const std::vector<std::string>& headers,
+             const std::string& output_file,
+             const bool progress,
+             std::string* response_str = nullptr) {
+  CurlWrapper curl;
+  if (curl.init(url, headers, output_file, progress, response_str)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+int huggingface_dl(const std::string& model,
+                   const std::vector<std::string> headers,
+                   const std::string& bn) {
   // Find the second occurrence of '/' after protocol string
   size_t pos = model.find('/');
   pos = model.find('/', pos + 1);
-  if (pos == std::string::npos)
+  if (pos == std::string::npos) {
     return 1;
+  }
 
   const std::string hfr = model.substr(0, pos);
   const std::string hff = model.substr(pos + 1);
   const std::string url =
       "https://huggingface.co/" + hfr + "/resolve/main/" + hff;
-  download(url, headers, bn, true);
-
-  return 0;
+  return download(url, headers, bn, true);
 }
 
-static int ollama_dl(std::string& model,
-                     const std::vector<std::string> headers,
-                     const std::string& bn) {
-  if (model.find('/') == std::string::npos)
+int ollama_dl(std::string& model,
+              const std::vector<std::string> headers,
+              const std::string& bn) {
+  if (model.find('/') == std::string::npos) {
     model = "library/" + model;
+  }
 
   std::string model_tag = "latest";
   size_t colon_pos = model.find(':');
@@ -207,7 +250,11 @@ static int ollama_dl(std::string& model,
   std::string manifest_url =
       "https://registry.ollama.ai/v2/" + model + "/manifests/" + model_tag;
   std::string manifest_str;
-  download(manifest_url, headers, "", false, &manifest_str);
+  const int ret = download(manifest_url, headers, "", false, &manifest_str);
+  if (ret) {
+    return ret;
+  }
+
   nlohmann::json manifest = nlohmann::json::parse(manifest_str);
   std::string layer;
   for (const auto& l : manifest["layers"]) {
@@ -219,9 +266,7 @@ static int ollama_dl(std::string& model,
 
   std::string blob_url =
       "https://registry.ollama.ai/v2/" + model + "/blobs/" + layer;
-  download(blob_url, headers, bn, true);
-
-  return 0;
+  return download(blob_url, headers, bn, true);
 }
 
 int main(int argc, char* argv[]) {
