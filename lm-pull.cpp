@@ -282,9 +282,7 @@ static void print_usage() {
       "  lm-pull "
       "huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/"
       "SmolLM-1.7B-Instruct-v0.2-IQ3_M.gguf\n"
-      "  lm-pull https://example.com/some-file1.gguf\n"
-
-  );
+      "  lm-pull https://example.com/some-file1.gguf\n");
 }
 
 int main(int argc, char* argv[]) {
