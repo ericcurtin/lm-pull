@@ -59,13 +59,11 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libcurl4-openssl-dev
-        sudo apt-get install -y nlohmann-json3-dev
 
     - name: Install dependencies on Windows
       if: matrix.os == 'windows-latest'
       run: |
         choco install curl
-        choco install -y nlohmann-json
 
     - name: Configure CMake
       run: >
