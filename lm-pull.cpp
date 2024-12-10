@@ -297,7 +297,7 @@ int main(int argc, char* argv[]) {
     return 0;
   }
 
-  std::string bn = basename(model);
+  const std::string bn = basename(model);
   const std::vector<std::string> headers = {
       "--header",
       "Accept: application/vnd.docker.distribution.manifest.v2+json"};
