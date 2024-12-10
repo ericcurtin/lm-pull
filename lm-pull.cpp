@@ -269,13 +269,36 @@ int ollama_dl(std::string& model,
   return download(blob_url, headers, bn, true);
 }
 
+static void print_usage() {
+  printf(
+      "Usage:\n"
+      "  lm-pull <model>\n"
+      "\n"
+      "Examples:\n"
+      "  lm-pull llama3\n"
+      "  lm-pull ollama://granite-code\n"
+      "  lm-pull ollama://smollm:135m\n"
+      "  lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q2_K.gguf\n"
+      "  lm-pull "
+      "huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/"
+      "SmolLM-1.7B-Instruct-v0.2-IQ3_M.gguf\n"
+      "  lm-pull https://example.com/some-file1.gguf\n"
+
+  );
+}
+
 int main(int argc, char* argv[]) {
   if (argc != 2) {
-    fprintf(stderr, "Usage: %s <model>\n", argv[0]);
+    print_usage();
     return 1;
   }
 
   std::string model = argv[1];
+  if (model == "-h" || model == "--help") {
+    print_usage();
+    return 0;
+  }
+
   std::string bn = basename(model);
   const std::vector<std::string> headers = {
       "--header",
