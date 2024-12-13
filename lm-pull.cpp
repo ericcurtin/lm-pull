@@ -219,7 +219,7 @@ class CurlWrapper {
         now - data->start_time;
     const double speed = now_downloaded / elapsed_seconds.count();
     const double estimated_time = (total_to_download - now_downloaded) / speed;
-    printe("\r%ld%% |%s| %s/%s  %.2f MB/s  %s      ", percentage,
+    printe("\r%ld%% |%s| %s/%s %.2f MB/s %s", percentage,
            progress_bar.c_str(), human_readable_size(now_downloaded).c_str(),
            human_readable_size(total_to_download).c_str(),
            speed / (1024 * 1024), human_readable_time(estimated_time).c_str());
