@@ -1,9 +1,10 @@
 #include <curl/curl.h>
 #include <sys/stat.h>
 #include <cstdio>
-#include "nlohmann/json.hpp"
+#include <sstream>
 #include <string>
 #include <vector>
+#include "nlohmann/json.hpp"
 
 #define printe(...)               \
   do {                            \
@@ -12,6 +13,8 @@
 
 struct progress_data {
   size_t file_size = 0;
+  std::chrono::steady_clock::time_point start_time =
+      std::chrono::steady_clock::now();
   bool printed = false;
 };
 
@@ -155,6 +158,40 @@ class CurlWrapper {
     }
   }
 
+  static std::string human_readable_time(double seconds) {
+    int hrs = static_cast<int>(seconds) / 3600;
+    int mins = (static_cast<int>(seconds) % 3600) / 60;
+    int secs = static_cast<int>(seconds) % 60;
+
+    std::ostringstream out;
+    if (hrs > 0) {
+      out << hrs << "h " << std::setw(2) << std::setfill('0') << mins << "m "
+          << std::setw(2) << std::setfill('0') << secs << "s";
+    } else if (mins > 0) {
+      out << mins << "m " << std::setw(2) << std::setfill('0') << secs << "s";
+    } else {
+      out << secs << "s";
+    }
+
+    return out.str();
+  }
+
+  static std::string human_readable_size(curl_off_t size) {
+    static const char* suffix[] = {"B", "KB", "MB", "GB", "TB"};
+    char length = sizeof(suffix) / sizeof(suffix[0]);
+    int i = 0;
+    double dbl_size = size;
+    if (size > 1024) {
+      for (i = 0; (size / 1024) > 0 && i < length - 1; i++, size /= 1024) {
+        dbl_size = size / 1024.0;
+      }
+    }
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(2) << dbl_size << " " << suffix[i];
+    return out.str();
+  }
+
   static int progress_callback(void* ptr,
                                curl_off_t total_to_download,
                                curl_off_t now_downloaded,
@@ -166,20 +203,26 @@ class CurlWrapper {
     }
 
     total_to_download += data->file_size;
-    now_downloaded += data->file_size;
-    int percentage =
-        static_cast<int>((now_downloaded * 100) / total_to_download);
-    printe("\rProgress: %d%% |", percentage);
-    int pos = (percentage / 5);
+    const curl_off_t now_downloaded_plus_file_size =
+        now_downloaded + data->file_size;
+    const curl_off_t percentage =
+        (now_downloaded_plus_file_size * 100) / total_to_download;
+    const curl_off_t pos = (percentage / 5);
+    std::string progress_bar;
     for (int i = 0; i < 20; ++i) {
-      if (i < pos) {
-        printe("█");
-      } else {
-        printe(" ");
-      }
+      progress_bar.append((i < pos) ? "█" : " ");
     }
 
-    printe("| %li/%li bytes", now_downloaded, total_to_download);
+    // Calculate download speed and estimated time to completion
+    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::duration<double> elapsed_seconds =
+        now - data->start_time;
+    const double speed = now_downloaded / elapsed_seconds.count();
+    const double estimated_time = (total_to_download - now_downloaded) / speed;
+    printe("\r%ld%% |%s| %s/%s  %.2f MB/s  %s      ", percentage,
+           progress_bar.c_str(), human_readable_size(now_downloaded).c_str(),
+           human_readable_size(total_to_download).c_str(),
+           speed / (1024 * 1024), human_readable_time(estimated_time).c_str());
     fflush(stderr);
     data->printed = true;
 
