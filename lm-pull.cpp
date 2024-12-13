@@ -1,6 +1,14 @@
 #include <curl/curl.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -192,6 +200,12 @@ class CurlWrapper {
     return out.str();
   }
 
+  static int get_terminal_width() {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    return w.ws_col;
+  }
+
   static int progress_callback(void* ptr,
                                curl_off_t total_to_download,
                                curl_off_t now_downloaded,
@@ -206,27 +220,86 @@ class CurlWrapper {
     const curl_off_t now_downloaded_plus_file_size =
         now_downloaded + data->file_size;
     const curl_off_t percentage =
-        (now_downloaded_plus_file_size * 100) / total_to_download;
-    const curl_off_t pos = (percentage / 5);
-    std::string progress_bar;
-    for (int i = 0; i < 20; ++i) {
-      progress_bar.append((i < pos) ? "█" : " ");
-    }
+        calculate_percentage(now_downloaded_plus_file_size, total_to_download);
+    std::string progress_prefix = generate_progress_prefix(percentage);
 
-    // Calculate download speed and estimated time to completion
-    const auto now = std::chrono::steady_clock::now();
-    const std::chrono::duration<double> elapsed_seconds =
-        now - data->start_time;
-    const double speed = now_downloaded / elapsed_seconds.count();
-    const double estimated_time = (total_to_download - now_downloaded) / speed;
-    printe("\r%ld%% |%s| %s/%s %.2f MB/s %s", percentage,
-           progress_bar.c_str(), human_readable_size(now_downloaded).c_str(),
-           human_readable_size(total_to_download).c_str(),
-           speed / (1024 * 1024), human_readable_time(estimated_time).c_str());
-    fflush(stderr);
+    const double speed = calculate_speed(now_downloaded, data->start_time);
+    const double time = (total_to_download - now_downloaded) / speed;
+    std::string progress_suffix = generate_progress_suffix(
+        now_downloaded_plus_file_size, total_to_download, speed, time);
+
+    int progress_bar_width =
+        calculate_progress_bar_width(progress_prefix, progress_suffix);
+    std::string progress_bar;
+    generate_progress_bar(progress_bar_width, percentage, progress_bar);
+
+    print_progress(progress_prefix, progress_bar, progress_suffix);
     data->printed = true;
 
     return 0;
+  }
+
+  static curl_off_t calculate_percentage(
+      curl_off_t now_downloaded_plus_file_size,
+      curl_off_t total_to_download) {
+    return (now_downloaded_plus_file_size * 100) / total_to_download;
+  }
+
+  static std::string generate_progress_prefix(curl_off_t percentage) {
+    std::ostringstream progress_output;
+    progress_output << percentage << "% |";
+    return progress_output.str();
+  }
+
+  static double calculate_speed(
+      curl_off_t now_downloaded,
+      const std::chrono::steady_clock::time_point& start_time) {
+    const auto now = std::chrono::steady_clock::now();
+    const std::chrono::duration<double> elapsed_seconds = now - start_time;
+    return now_downloaded / elapsed_seconds.count();
+  }
+
+  static std::string generate_progress_suffix(
+      curl_off_t now_downloaded_plus_file_size,
+      curl_off_t total_to_download,
+      double speed,
+      double estimated_time) {
+    std::ostringstream progress_output;
+    progress_output
+        << human_readable_size(now_downloaded_plus_file_size).c_str() << "/"
+        << human_readable_size(total_to_download).c_str() << " " << std::fixed
+        << std::setprecision(2) << speed / (1024 * 1024) << " MB/s "
+        << human_readable_time(estimated_time).c_str();
+    return progress_output.str();
+  }
+
+  static int calculate_progress_bar_width(const std::string& progress_prefix,
+                                          const std::string& progress_suffix) {
+    int progress_bar_width = get_terminal_width() - progress_prefix.size() -
+                             progress_suffix.size() - 5;
+    if (progress_bar_width < 10)
+      progress_bar_width = 10;
+    return progress_bar_width;
+  }
+
+  static std::string generate_progress_bar(int progress_bar_width,
+                                           curl_off_t percentage,
+                                           std::string& progress_bar) {
+    const curl_off_t pos = (percentage * progress_bar_width) / 100;
+    for (int i = 0; i < progress_bar_width; ++i)
+      progress_bar.append((i < pos) ? "█" : " ");
+
+    return progress_bar;
+  }
+
+  static void print_progress(const std::string& progress_prefix,
+                             const std::string& progress_bar,
+                             const std::string& progress_suffix) {
+    std::ostringstream progress_output;
+    progress_output << progress_prefix << progress_bar << "| "
+                    << progress_suffix;
+    printe("\r%s", progress_output.str().c_str());
+    fflush(stderr);
   }
 
   // Function to write data to a file
