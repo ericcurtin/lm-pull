@@ -37,6 +37,20 @@ lm-pull <model-url>
   - `hf://` or `huggingface://`: URL to a HuggingFace model.
   - `ollama://`: URL to an Ollama model. (also the default)
 
+```
+$ build/lm-pull -h
+Usage:
+  lm-pull <model>
+
+Examples:
+  lm-pull llama3
+  lm-pull ollama://granite-code
+  lm-pull ollama://smollm:135m
+  lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q2_K.gguf
+  lm-pull huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/SmolLM-1.7B-Instruct-v0.2-IQ3_M.gguf
+  lm-pull https://example.com/some-file1.gguf
+```
+
 ## Example
 
 To download a model from HuggingFace:
