@@ -307,8 +307,10 @@ class HttpClient {
     std::ostringstream progress_output;
     progress_output << progress_prefix << progress_bar << "| "
                     << progress_suffix;
-    printe("\r%s", progress_output.str().c_str());
-    fflush(stderr);
+    printe(
+        "\r%*s"
+        "\r%s",
+        get_terminal_width(), " ", progress_output.str().c_str());
   }
 
   // Function to write data to a file
