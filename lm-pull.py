@@ -83,8 +83,8 @@ class HttpClient:
 
     def calculate_progress_bar_width(self, progress_prefix, progress_suffix):
         progress_bar_width = self.get_terminal_width() - len(progress_prefix) - len(progress_suffix) - 5
-        if progress_bar_width < 10:
-            progress_bar_width = 10
+        if progress_bar_width < 1:
+            progress_bar_width = 1
 
         return progress_bar_width
 

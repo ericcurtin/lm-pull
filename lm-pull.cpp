@@ -285,8 +285,8 @@ class HttpClient {
                                           const std::string& progress_suffix) {
     int progress_bar_width = get_terminal_width() - progress_prefix.size() -
                              progress_suffix.size() - 5;
-    if (progress_bar_width < 10)
-      progress_bar_width = 10;
+    if (progress_bar_width < 1)
+      progress_bar_width = 1;
 
     return progress_bar_width;
   }
