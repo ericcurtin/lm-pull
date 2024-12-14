@@ -14,10 +14,10 @@
 #include <vector>
 #include "nlohmann/json.hpp"
 
-#if defined(__GNUC__) || defined(__clang__)
-#define FORMAT_ATTR(fmt, args) __attribute__((format(printf, fmt, args)))
-#else
+#if defined(_WIN32)
 #define FORMAT_ATTR(fmt, args)
+#else
+#define FORMAT_ATTR(fmt, args) __attribute__((format(printf, fmt, args)))
 #endif
 
 static std::string fmt(const char* fmt, ...) FORMAT_ATTR(1, 2);
