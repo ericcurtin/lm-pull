@@ -74,10 +74,9 @@ class HttpClient:
         return shutil.get_terminal_size().columns
 
     def generate_progress_prefix(self, percentage):
-        return f"{percentage}% |"
+        return f"{percentage}% |".rjust(6)
 
     def generate_progress_suffix(self, now_downloaded_plus_file_size, total_to_download, speed, estimated_time):
-        # print(f"{now_downloaded_plus_file_size}/{total_to_download}")
         return f"{self.human_readable_size(now_downloaded_plus_file_size)}/{self.human_readable_size(total_to_download)}{self.human_readable_size(speed)}/s{self.human_readable_time(estimated_time)}"
 
     def calculate_progress_bar_width(self, progress_prefix, progress_suffix):

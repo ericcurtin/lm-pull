@@ -253,7 +253,7 @@ class HttpClient {
 
   static std::string generate_progress_prefix(curl_off_t percentage) {
     std::ostringstream progress_output;
-    progress_output << percentage << "% |";
+    progress_output << std::setw(3) << percentage << "% |";
     return progress_output.str();
   }
 
@@ -287,6 +287,7 @@ class HttpClient {
                              progress_suffix.size() - 5;
     if (progress_bar_width < 10)
       progress_bar_width = 10;
+
     return progress_bar_width;
   }
 
