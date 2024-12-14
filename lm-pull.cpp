@@ -28,8 +28,7 @@ static std::string fmt(const char* fmt, ...) {
   const int size = vsnprintf(NULL, 0, fmt, ap);
   std::string buf;
   buf.resize(size + 1);
-  const int size2 =
-      vsnprintf(const_cast<char*>(buf.data()), buf.size(), fmt, ap2);
+  vsnprintf(const_cast<char*>(buf.data()), buf.size(), fmt, ap2);
   va_end(ap2);
   va_end(ap);
 
