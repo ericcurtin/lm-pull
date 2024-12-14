@@ -111,8 +111,8 @@ class HttpClient:
         percentage = (now_downloaded_plus_file_size * 100) // self.total_to_download
         progress_prefix = self.generate_progress_prefix(percentage)
         speed = self.calculate_speed(self.now_downloaded, self.start_time)
-        time = (self.total_to_download - self.now_downloaded) // speed;
-        progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, self.total_to_download, speed, time)
+        tim = (self.total_to_download - self.now_downloaded) // speed;
+        progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, self.total_to_download, speed, tim)
         progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix);
         progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
         self.print_progress(progress_prefix, progress_bar, progress_suffix);

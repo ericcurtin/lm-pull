@@ -230,9 +230,9 @@ class HttpClient {
     std::string progress_prefix = generate_progress_prefix(percentage);
 
     const double speed = calculate_speed(now_downloaded, data->start_time);
-    const double time = (total_to_download - now_downloaded) / speed;
+    const double tim = (total_to_download - now_downloaded) / speed;
     std::string progress_suffix = generate_progress_suffix(
-        now_downloaded_plus_file_size, total_to_download, speed, time);
+        now_downloaded_plus_file_size, total_to_download, speed, tim);
 
     int progress_bar_width =
         calculate_progress_bar_width(progress_prefix, progress_suffix);
