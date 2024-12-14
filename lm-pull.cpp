@@ -35,7 +35,7 @@ std::string fmt(const char* fmt, ...) {
       return "";
     }
 
-    if (n <= buffer.size()) {
+    if (n <= static_cast<int>(buffer.size())) {
       buffer.resize(n);
       return buffer;
     }
