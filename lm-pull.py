@@ -19,6 +19,7 @@ class HttpClient:
             output_file_partial = output_file + ".partial"
 
         self.file_size = self.set_resume_point(output_file_partial)
+        self.printed = False
         headers["Range"] = f"bytes={self.file_size}-"
 
         response = self.session.get(url, headers=headers, stream=True)
@@ -42,7 +43,8 @@ class HttpClient:
         if output_file:
             os.rename(output_file_partial, output_file)
 
-        print("\n")
+        if self.printed:
+            print("\n")
 
         return 0
 
@@ -114,6 +116,7 @@ class HttpClient:
         progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix);
         progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
         self.print_progress(progress_prefix, progress_bar, progress_suffix);
+        self.printed = True
 
     def calculate_speed(self, now_downloaded, start_time):
         now = time.time()
