@@ -20,37 +20,30 @@
 #define FORMAT_ATTR(fmt, args) __attribute__((format(printf, fmt, args)))
 #endif
 
-static std::string fmt(const char* fmt, ...) FORMAT_ATTR(1, 2);
+FORMAT_ATTR(1, 2)
+static std::string fmt(const char* fmt, ...) {
+  va_list ap;
+  va_list ap2;
+  va_start(ap, fmt);
+  va_copy(ap2, ap);
+  const int size = vsnprintf(NULL, 0, fmt, ap);
+  std::string buf;
+  buf.resize(size + 1);
+  const int size2 =
+      vsnprintf(const_cast<char*>(buf.data()), buf.size(), fmt, ap2);
+  va_end(ap2);
+  va_end(ap);
 
-std::string fmt(const char* fmt, ...) {
-  std::string buffer;
-  buffer.resize(16);
-  va_list args;
-  while (true) {
-    va_start(args, fmt);
-    int n =
-        vsnprintf(const_cast<char*>(buffer.data()), buffer.size(), fmt, args);
-    va_end(args);
-    if (n < 0) {
-      return "";
-    }
-
-    if (n <= static_cast<int>(buffer.size())) {
-      buffer.resize(n);
-      return buffer;
-    }
-
-    buffer.resize(n + 1);
-  }
+  return buf;
 }
 
-static int printe(const char* fmt, ...) FORMAT_ATTR(1, 2);
-
-int printe(const char* fmt, ...) {
+FORMAT_ATTR(1, 2)
+static int printe(const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   const int ret = vfprintf(stderr, fmt, args);
   va_end(args);
+
   return ret;
 }
 
