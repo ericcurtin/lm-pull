@@ -60,7 +60,7 @@ static int remove_proto(std::string& model_) {
   return 0;
 }
 
-class CurlWrapper {
+class HttpClient {
  public:
   int init(const std::string& url,
            const std::vector<std::string>& headers,
@@ -96,7 +96,7 @@ class CurlWrapper {
     return 0;
   }
 
-  ~CurlWrapper() {
+  ~HttpClient() {
     if (chunk) {
       curl_slist_free_all(chunk);
     }
@@ -135,7 +135,7 @@ class CurlWrapper {
     if (progress) {
       curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
       curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &data);
-      curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_callback);
+      curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, update_progress);
     }
   }
 
@@ -212,11 +212,11 @@ class CurlWrapper {
 #endif
   }
 
-  static int progress_callback(void* ptr,
-                               curl_off_t total_to_download,
-                               curl_off_t now_downloaded,
-                               curl_off_t,
-                               curl_off_t) {
+  static int update_progress(void* ptr,
+                             curl_off_t total_to_download,
+                             curl_off_t now_downloaded,
+                             curl_off_t,
+                             curl_off_t) {
     progress_data* data = static_cast<progress_data*>(ptr);
     if (total_to_download <= 0) {
       return 0;
@@ -270,12 +270,14 @@ class CurlWrapper {
       curl_off_t total_to_download,
       double speed,
       double estimated_time) {
+    const int width = 10;
     std::ostringstream progress_output;
-    progress_output
-        << human_readable_size(now_downloaded_plus_file_size).c_str() << "/"
-        << human_readable_size(total_to_download).c_str() << " " << std::fixed
-        << std::setprecision(2) << speed / (1024 * 1024) << " MB/s "
-        << human_readable_time(estimated_time).c_str();
+    progress_output << std::setw(width)
+                    << human_readable_size(now_downloaded_plus_file_size) << "/"
+                    << std::setw(width)
+                    << human_readable_size(total_to_download)
+                    << std::setw(width) << human_readable_size(speed) << "/s"
+                    << std::setw(width) << human_readable_time(estimated_time);
     return progress_output.str();
   }
 
@@ -330,8 +332,8 @@ int download(const std::string& url,
              const std::string& output_file,
              const bool progress,
              std::string* response_str = nullptr) {
-  CurlWrapper curl;
-  if (curl.init(url, headers, output_file, progress, response_str)) {
+  HttpClient http;
+  if (http.init(url, headers, output_file, progress, response_str)) {
     return 1;
   }
 

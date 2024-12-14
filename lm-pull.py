@@ -4,39 +4,35 @@ import os
 import sys
 import time
 import requests
+import shutil
 from datetime import datetime
 import json
 
 
-class CurlWrapper:
+class HttpClient:
     def __init__(self):
         self.session = requests.Session()
 
     def init(self, url, headers, output_file, progress, response_str=None):
+        output_file_partial = None
         if output_file:
             output_file_partial = output_file + ".partial"
-        else:
-            output_file_partial = None
 
-        file_exists = False
-        partial_file_size = 0
-        if output_file_partial and os.path.exists(output_file_partial):
-            file_exists = True
-            partial_file_size = os.path.getsize(output_file_partial)
-            headers["Range"] = f"bytes={partial_file_size}-"
+        self.file_size = self.set_resume_point(output_file_partial)
+        headers["Range"] = f"bytes={self.file_size}-"
 
         response = self.session.get(url, headers=headers, stream=True)
         if response.status_code not in (200, 206):
             print(f"Request failed: {response.status_code}", file=sys.stderr)
             return 1
 
-        file_size = int(response.headers.get('content-length', 0))
+        self.total_to_download = int(response.headers.get('content-length', 0))
         if response_str is not None:
             response_str.append(response.text)
         else:
             with open(output_file_partial, "ab") as file:
-                self.total_size = file_size + partial_file_size
-                self.downloaded_size = partial_file_size
+                self.total_to_download += self.file_size
+                self.now_downloaded = 0
                 self.start_time = time.time()
                 for data in response.iter_content(chunk_size=1024):
                     size = file.write(data)
@@ -50,18 +46,84 @@ class CurlWrapper:
 
         return 0
 
+    def human_readable_time(self, seconds):
+        hrs = int(seconds) // 3600
+        mins = (int(seconds) % 3600) // 60
+        secs = int(seconds) % 60
+        width = 10
+        if hrs > 0:
+            return f"{hrs}h {mins:02}m {secs:02}s".rjust(width)
+        elif mins > 0:
+            return f"{mins}m {secs:02}s".rjust(width)
+        else:
+            return f"{secs}s".rjust(width)
+
+    def human_readable_size(self, size):
+        width = 10
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if size < 1024:
+                size = round(size, 2)
+                return f"{size:.2f} {unit}".rjust(width)
+
+            size /= 1024
+
+        return f"{size:.2f} PB".rjust(width)
+
+
+    def get_terminal_width(self):
+        return shutil.get_terminal_size().columns
+
+    def generate_progress_prefix(self, percentage):
+        return f"{percentage}% |"
+
+    def generate_progress_suffix(self, now_downloaded_plus_file_size, total_to_download, speed, estimated_time):
+        # print(f"{now_downloaded_plus_file_size}/{total_to_download}")
+        return f"{self.human_readable_size(now_downloaded_plus_file_size)}/{self.human_readable_size(total_to_download)}{self.human_readable_size(speed)}/s{self.human_readable_time(estimated_time)}"
+
+    def calculate_progress_bar_width(self, progress_prefix, progress_suffix):
+        progress_bar_width = self.get_terminal_width() - len(progress_prefix) - len(progress_suffix) - 5
+        if progress_bar_width < 10:
+            progress_bar_width = 10
+
+        return progress_bar_width
+
+    def generate_progress_bar(self, progress_bar_width, percentage):
+        pos = (percentage * progress_bar_width) // 100
+        progress_bar = ""
+        for i in range(progress_bar_width):
+            progress_bar += "█" if i < pos else " "
+
+        return progress_bar
+
+    def set_resume_point(self, output_file):
+        if output_file and os.path.exists(output_file):
+            return os.path.getsize(output_file)
+
+        return 0 
+
+    def print_progress(self, progress_prefix, progress_bar, progress_suffix):
+        print(f"\r{progress_prefix}{progress_bar}| {progress_suffix}", end="")
+
     def update_progress(self, chunk_size):
-        self.downloaded_size += chunk_size
-        percentage = (self.downloaded_size * 100) // self.total_size
-        speed = self.downloaded_size / (time.time() - self.start_time)
-        bar_length = 50
-        filled_length = int(bar_length * percentage // 100)
-        bar = '█' * filled_length + ' ' * (bar_length - filled_length)
-        print(f"\r{percentage}% |{bar}| {speed / (1024 * 1024):.2f} MB/s", end='')
+        self.now_downloaded += chunk_size
+        now_downloaded_plus_file_size = self.now_downloaded + self.file_size
+        percentage = (now_downloaded_plus_file_size * 100) // self.total_to_download
+        progress_prefix = self.generate_progress_prefix(percentage)
+        speed = self.calculate_speed(self.now_downloaded, self.start_time)
+        time = (self.total_to_download - self.now_downloaded) // speed;
+        progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, self.total_to_download, speed, time)
+        progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix);
+        progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
+        self.print_progress(progress_prefix, progress_bar, progress_suffix);
+
+    def calculate_speed(self, now_downloaded, start_time):
+        now = time.time()
+        elapsed_seconds = now - start_time;
+        return now_downloaded / elapsed_seconds
 
 def download(url, headers, output_file, progress, response_str=None):
-    curl = CurlWrapper()
-    return curl.init(url, headers, output_file, progress, response_str)
+    http = HttpClient()
+    return http.init(url, headers, output_file, progress, response_str)
 
 def huggingface_dl(model, headers, bn):
     pos = model.find('/')
