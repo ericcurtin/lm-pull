@@ -38,7 +38,7 @@ setup_lm_pull() {
   local from_file="${binfile}.py"
   local host="https://raw.githubusercontent.com"
   local branch="${BRANCH:-s}"
-  local url="${host}/ericcurtin/lm-pull/${branch}/bin/${from_file}"
+  local url="${host}/ericcurtin/lm-pull/${branch}/${from_file}"
   local to_file="${2}/${from_file}"
   download "$url" "$to_file"
 
