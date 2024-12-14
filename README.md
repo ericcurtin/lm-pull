@@ -2,6 +2,12 @@
 
 This project provides a command-line utility to download machine learning models from various sources, including HuggingFace and Ollama. It supports resuming downloads, displaying progress, and handling different URL schemes.
 
+## Install
+
+```
+curl -fsSL https://raw.githubusercontent.com/ericcurtin/lm-pull/s/install.sh | bash
+```
+
 ## Features
 
 - Download models from HuggingFace and Ollama.
@@ -10,6 +16,12 @@ This project provides a command-line utility to download machine learning models
 - Handle different URL schemes for model sources.
 
 ## Dependencies
+
+python3 version:
+
+- no dependancies
+
+C++ version:
 
 - [libcurl](https://curl.se/libcurl/)
 - [nlohmann/json](https://github.com/nlohmann/json)
