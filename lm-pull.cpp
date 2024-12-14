@@ -9,15 +9,49 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 #include "nlohmann/json.hpp"
 
-#define printe(...)               \
-  do {                            \
-    fprintf(stderr, __VA_ARGS__); \
-  } while (0)
+#if defined(__GNUC__) || defined(__clang__)
+#define FORMAT_ATTR(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define FORMAT_ATTR(fmt, args)
+#endif
+
+static std::string fmt(const char* fmt, ...) FORMAT_ATTR(1, 2);
+
+std::string fmt(const char* fmt, ...) {
+  std::string buffer;
+  buffer.resize(16);
+  va_list args;
+  while (true) {
+    va_start(args, fmt);
+    int n =
+        vsnprintf(const_cast<char*>(buffer.data()), buffer.size(), fmt, args);
+    va_end(args);
+    if (n < 0) {
+      return "";
+    }
+
+    if (n <= buffer.size()) {
+      buffer.resize(n);
+      return buffer;
+    }
+
+    buffer.resize(n + 1);
+  }
+}
+
+static int printe(const char* fmt, ...) FORMAT_ATTR(1, 2);
+
+int printe(const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  const int ret = vfprintf(stderr, fmt, args);
+  va_end(args);
+  return ret;
+}
 
 struct progress_data {
   size_t file_size = 0;
@@ -60,6 +94,18 @@ static int remove_proto(std::string& model_) {
   return 0;
 }
 
+static int get_terminal_width() {
+#if defined(_WIN32)
+  CONSOLE_SCREEN_BUFFER_INFO csbi;
+  GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+  return csbi.srWindow.Right - csbi.srWindow.Left + 1;
+#else
+  struct winsize w;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+  return w.ws_col;
+#endif
+}
+
 class HttpClient {
  public:
   int init(const std::string& url,
@@ -87,10 +133,6 @@ class HttpClient {
     perform(url);
     if (!output_file.empty()) {
       std::filesystem::rename(output_file_partial, output_file);
-    }
-
-    if (data.printed) {
-      printe("\n");
     }
 
     return 0;
@@ -171,17 +213,13 @@ class HttpClient {
     int mins = (static_cast<int>(seconds) % 3600) / 60;
     int secs = static_cast<int>(seconds) % 60;
 
-    std::ostringstream out;
     if (hrs > 0) {
-      out << hrs << "h " << std::setw(2) << std::setfill('0') << mins << "m "
-          << std::setw(2) << std::setfill('0') << secs << "s";
+      return fmt("%dh %02dm %02ds", hrs, mins, secs);
     } else if (mins > 0) {
-      out << mins << "m " << std::setw(2) << std::setfill('0') << secs << "s";
+      return fmt("%dm %02ds", mins, secs);
     } else {
-      out << secs << "s";
+      return fmt("%ds", secs);
     }
-
-    return out.str();
   }
 
   static std::string human_readable_size(curl_off_t size) {
@@ -195,21 +233,7 @@ class HttpClient {
       }
     }
 
-    std::ostringstream out;
-    out << std::fixed << std::setprecision(2) << dbl_size << " " << suffix[i];
-    return out.str();
-  }
-
-  static int get_terminal_width() {
-#if defined(_WIN32)
-    CONSOLE_SCREEN_BUFFER_INFO csbi;
-    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
-    return csbi.srWindow.Right - csbi.srWindow.Left + 1;
-#else
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-    return w.ws_col;
-#endif
+    return fmt("%.2f %s", dbl_size, suffix[i]);
   }
 
   static int update_progress(void* ptr,
@@ -252,9 +276,7 @@ class HttpClient {
   }
 
   static std::string generate_progress_prefix(curl_off_t percentage) {
-    std::ostringstream progress_output;
-    progress_output << std::setw(3) << percentage << "% |";
-    return progress_output.str();
+    return fmt("%3ld%% |", percentage);
   }
 
   static double calculate_speed(
@@ -271,22 +293,20 @@ class HttpClient {
       double speed,
       double estimated_time) {
     const int width = 10;
-    std::ostringstream progress_output;
-    progress_output << std::setw(width)
-                    << human_readable_size(now_downloaded_plus_file_size) << "/"
-                    << std::setw(width)
-                    << human_readable_size(total_to_download)
-                    << std::setw(width) << human_readable_size(speed) << "/s"
-                    << std::setw(width) << human_readable_time(estimated_time);
-    return progress_output.str();
+    return fmt("%*s/%*s%*s/s%*s", width,
+               human_readable_size(now_downloaded_plus_file_size).c_str(),
+               width, human_readable_size(total_to_download).c_str(), width,
+               human_readable_size(speed).c_str(), width,
+               human_readable_time(estimated_time).c_str());
   }
 
   static int calculate_progress_bar_width(const std::string& progress_prefix,
                                           const std::string& progress_suffix) {
     int progress_bar_width = get_terminal_width() - progress_prefix.size() -
                              progress_suffix.size() - 5;
-    if (progress_bar_width < 1)
+    if (progress_bar_width < 1) {
       progress_bar_width = 1;
+    }
 
     return progress_bar_width;
   }
@@ -295,8 +315,9 @@ class HttpClient {
                                            curl_off_t percentage,
                                            std::string& progress_bar) {
     const curl_off_t pos = (percentage * progress_bar_width) / 100;
-    for (int i = 0; i < progress_bar_width; ++i)
+    for (int i = 0; i < progress_bar_width; ++i) {
       progress_bar.append((i < pos) ? "█" : " ");
+    }
 
     return progress_bar;
   }
@@ -304,15 +325,10 @@ class HttpClient {
   static void print_progress(const std::string& progress_prefix,
                              const std::string& progress_bar,
                              const std::string& progress_suffix) {
-    std::ostringstream progress_output;
-    progress_output << progress_prefix << progress_bar << "| "
-                    << progress_suffix;
-    printe(
-        "\r%*s"
-        "\r%s",
-        get_terminal_width(), " ", progress_output.str().c_str());
+    printe("\r%*s\r%s%s| %s", get_terminal_width(), " ",
+           progress_prefix.c_str(), progress_bar.c_str(),
+           progress_suffix.c_str());
   }
-
   // Function to write data to a file
   static size_t write_data(void* ptr, size_t size, size_t nmemb, void* stream) {
     FILE* out = static_cast<FILE*>(stream);
