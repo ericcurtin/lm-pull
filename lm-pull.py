@@ -3,7 +3,8 @@
 import os
 import sys
 import time
-import requests
+import urllib.request
+import urllib.error
 import shutil
 from datetime import datetime
 import json
@@ -11,7 +12,7 @@ import json
 
 class HttpClient:
     def __init__(self):
-        self.session = requests.Session()
+        pass
 
     def init(self, url, headers, output_file, progress, response_str=None):
         output_file_partial = None
@@ -22,20 +23,29 @@ class HttpClient:
         self.printed = False
         headers["Range"] = f"bytes={self.file_size}-"
 
-        response = self.session.get(url, headers=headers, stream=True)
-        if response.status_code not in (200, 206):
-            print(f"Request failed: {response.status_code}", file=sys.stderr)
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            response = urllib.request.urlopen(request)
+        except urllib.error.HTTPError as e:
+            print(f"Request failed: {e.code}", file=sys.stderr)
             return 1
 
-        self.total_to_download = int(response.headers.get('content-length', 0))
+        if response.status not in (200, 206):
+            print(f"Request failed: {response.status}", file=sys.stderr)
+            return 1
+
+        self.total_to_download = int(response.getheader('content-length', 0))
         if response_str is not None:
-            response_str.append(response.text)
+            response_str.append(response.read().decode('utf-8'))
         else:
             with open(output_file_partial, "ab") as file:
                 self.total_to_download += self.file_size
                 self.now_downloaded = 0
                 self.start_time = time.time()
-                for data in response.iter_content(chunk_size=1024):
+                while True:
+                    data = response.read(1024)
+                    if not data:
+                        break
                     size = file.write(data)
                     if progress:
                         self.update_progress(size)
@@ -71,7 +81,6 @@ class HttpClient:
 
         return f"{size:.2f} PB".rjust(width)
 
-
     def get_terminal_width(self):
         return shutil.get_terminal_size().columns
 
@@ -100,7 +109,7 @@ class HttpClient:
         if output_file and os.path.exists(output_file):
             return os.path.getsize(output_file)
 
-        return 0 
+        return 0
 
     def print_progress(self, progress_prefix, progress_bar, progress_suffix):
         print(f"\r{progress_prefix}{progress_bar}| {progress_suffix}", end="")
@@ -111,16 +120,16 @@ class HttpClient:
         percentage = (now_downloaded_plus_file_size * 100) // self.total_to_download
         progress_prefix = self.generate_progress_prefix(percentage)
         speed = self.calculate_speed(self.now_downloaded, self.start_time)
-        tim = (self.total_to_download - self.now_downloaded) // speed;
+        tim = (self.total_to_download - self.now_downloaded) // speed
         progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, self.total_to_download, speed, tim)
-        progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix);
+        progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix)
         progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
-        self.print_progress(progress_prefix, progress_bar, progress_suffix);
+        self.print_progress(progress_prefix, progress_bar, progress_suffix)
         self.printed = True
 
     def calculate_speed(self, now_downloaded, start_time):
         now = time.time()
-        elapsed_seconds = now - start_time;
+        elapsed_seconds = now - start_time
         return now_downloaded / elapsed_seconds
 
 def download(url, headers, output_file, progress, response_str=None):
