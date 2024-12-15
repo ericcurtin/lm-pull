@@ -91,7 +91,7 @@ class HttpClient:
         return f"{self.human_readable_size(now_downloaded_plus_file_size)}/{self.human_readable_size(total_to_download)}{self.human_readable_size(speed)}/s{self.human_readable_time(estimated_time)}"
 
     def calculate_progress_bar_width(self, progress_prefix, progress_suffix):
-        progress_bar_width = self.get_terminal_width() - len(progress_prefix) - len(progress_suffix) - 5
+        progress_bar_width = self.get_terminal_width() - len(progress_prefix) - len(progress_suffix) - 3
         if progress_bar_width < 1:
             progress_bar_width = 1
 
