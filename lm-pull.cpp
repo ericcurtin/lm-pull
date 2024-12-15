@@ -27,13 +27,11 @@ static std::string fmt(const char* fmt, ...) {
   va_copy(ap2, ap);
   const int size = vsnprintf(NULL, 0, fmt, ap);
   std::string buf;
-  buf.resize(size + 1);
+  buf.resize(size);
   const int size2 =
-      vsnprintf(const_cast<char*>(buf.data()), buf.size(), fmt, ap2);
+      vsnprintf(const_cast<char*>(buf.data()), buf.size() + 1, fmt, ap2);
   va_end(ap2);
   va_end(ap);
-
-  buf.resize(size2);
 
   return buf;
 }
