@@ -1,7 +1,13 @@
-#include <curl/curl.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
+
+#include <curl/curl.h>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -53,16 +59,6 @@ struct progress_data {
   bool printed = false;
 };
 
-struct FileDeleter {
-  void operator()(FILE* file) const {
-    if (file) {
-      fclose(file);
-    }
-  }
-};
-
-typedef std::unique_ptr<FILE, FileDeleter> FILE_ptr;
-
 // Function to get the basename of a path
 static std::string basename(const std::string& path) {
   const size_t pos = path.find_last_of("/\\");
@@ -99,6 +95,72 @@ static int get_terminal_width() {
 #endif
 }
 
+class File {
+ public:
+  FILE* file = nullptr;
+
+  FILE* open(const std::string& filename, const char* mode) {
+    file = fopen(filename.c_str(), mode);
+
+    return file;
+  }
+
+  int lock() {
+    if (file) {
+#ifdef _WIN32
+      fd = _fileno(file);
+      hFile = (HANDLE)_get_osfhandle(fd);
+      if (hFile == INVALID_HANDLE_VALUE) {
+        fd = -1;
+
+        return 1;
+      }
+
+      OVERLAPPED overlapped = {0};
+      if (!LockFileEx(hFile,
+                      LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0,
+                      MAXDWORD, MAXDWORD, &overlapped)) {
+        fd = -1;
+
+        return 1;
+      }
+#else
+      fd = fileno(file);
+      if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        fd = -1;
+
+        return 1;
+      }
+#endif
+    }
+
+    return 0;
+  }
+
+  ~File() {
+    if (fd >= 0) {
+#ifdef _WIN32
+      if (hFile != INVALID_HANDLE_VALUE) {
+        OVERLAPPED overlapped = {0};
+        UnlockFileEx(hFile, 0, MAXDWORD, MAXDWORD, &overlapped);
+      }
+#else
+      flock(fd, LOCK_UN);
+#endif
+    }
+
+    if (file) {
+      fclose(file);
+    }
+  }
+
+ private:
+  int fd = -1;
+#ifdef _WIN32
+  HANDLE hFile;
+#endif
+};
+
 class HttpClient {
  public:
   int init(const std::string& url,
@@ -113,10 +175,20 @@ class HttpClient {
     }
 
     progress_data data;
-    FILE_ptr out;
+    File out;
     if (!output_file.empty()) {
       output_file_partial = output_file + ".partial";
-      out.reset(fopen(output_file_partial.c_str(), "ab"));
+      if (!out.open(output_file_partial, "ab")) {
+        printe("Failed to open file\n");
+
+        return 1;
+      }
+
+      if (out.lock()) {
+        printe("Failed to exclusively lock file\n");
+
+        return 1;
+      }
     }
 
     set_write_options(response_str, out);
@@ -145,13 +217,13 @@ class HttpClient {
   CURL* curl = nullptr;
   struct curl_slist* chunk = nullptr;
 
-  void set_write_options(std::string* response_str, const FILE_ptr& out) {
+  void set_write_options(std::string* response_str, const File& out) {
     if (response_str) {
       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, capture_data);
       curl_easy_setopt(curl, CURLOPT_WRITEDATA, response_str);
     } else {
       curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);
-      curl_easy_setopt(curl, CURLOPT_WRITEDATA, out.get());
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, out.file);
     }
   }
 
