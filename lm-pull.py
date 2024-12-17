@@ -8,7 +8,34 @@ import urllib.error
 import shutil
 from datetime import datetime
 import json
+import fcntl
 
+class File:
+    def __init__(self):
+        self.file = None
+        self.fd = -1
+
+    def open(self, filename, mode):
+        self.file = open(filename, mode)
+        return self.file
+
+    def lock(self):
+        if self.file:
+            self.fd = self.file.fileno()
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.fd = -1
+                return 1
+
+        return 0
+
+    def __del__(self):
+        if self.fd >= 0:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+
+        if self.file:
+            self.file.close()
 
 class HttpClient:
     def __init__(self):
@@ -21,34 +48,28 @@ class HttpClient:
 
         self.file_size = self.set_resume_point(output_file_partial)
         self.printed = False
-        headers["Range"] = f"bytes={self.file_size}-"
-
-        request = urllib.request.Request(url, headers=headers)
-        try:
-            response = urllib.request.urlopen(request)
-        except urllib.error.HTTPError as e:
-            print(f"Request failed: {e.code}", file=sys.stderr)
+        if self.urlopen(url, headers):
             return 1
 
-        if response.status not in (200, 206):
-            print(f"Request failed: {response.status}", file=sys.stderr)
-            return 1
-
-        self.total_to_download = int(response.getheader('content-length', 0))
+        self.total_to_download = int(self.response.getheader('content-length', 0))
         if response_str is not None:
-            response_str.append(response.read().decode('utf-8'))
+            response_str.append(self.response.read().decode('utf-8'))
         else:
-            with open(output_file_partial, "ab") as file:
-                self.total_to_download += self.file_size
-                self.now_downloaded = 0
-                self.start_time = time.time()
-                while True:
-                    data = response.read(1024)
-                    if not data:
-                        break
-                    size = file.write(data)
-                    if progress:
-                        self.update_progress(size)
+            out = File()
+            if not out.open(output_file_partial, "ab"):
+                print("Failed to open file")
+
+                return 1
+
+            if out.lock():
+                print("Failed to exclusively lock file")
+
+                return 1
+
+            self.total_to_download += self.file_size
+            self.now_downloaded = 0
+            self.start_time = time.time()
+            self.perform_download(out.file, progress)
 
         if output_file:
             os.rename(output_file_partial, output_file)
@@ -57,6 +78,36 @@ class HttpClient:
             print("\n")
 
         return 0
+
+    def urlopen(self, url, headers):
+        headers["Range"] = f"bytes={self.file_size}-"
+        request = urllib.request.Request(url, headers=headers)
+        try:
+            self.response = urllib.request.urlopen(request)
+        except urllib.error.HTTPError as e:
+            print(f"Request failed: {e.code}", file=sys.stderr)
+
+            return 1
+
+        if self.response.status not in (200, 206):
+            print(f"Request failed: {self.response.status}", file=sys.stderr)
+
+            return 1
+
+        return 0
+
+    def perform_download(self, file, progress):
+        self.total_to_download += self.file_size
+        self.now_downloaded = 0
+        self.start_time = time.time()
+        while True:
+            data = self.response.read(1024)
+            if not data:
+                break
+
+            size = file.write(data)
+            if progress:
+                self.update_progress(size)
 
     def human_readable_time(self, seconds):
         hrs = int(seconds) // 3600
