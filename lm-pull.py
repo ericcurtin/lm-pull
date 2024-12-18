@@ -66,7 +66,6 @@ class HttpClient:
 
                 return 1
 
-            self.total_to_download += self.file_size
             self.now_downloaded = 0
             self.start_time = time.time()
             self.perform_download(out.file, progress)
@@ -125,7 +124,6 @@ class HttpClient:
         width = 10
         for unit in ["B", "KB", "MB", "GB", "TB"]:
             if size < 1024:
-                size = round(size, 2)
                 return f"{size:.2f} {unit}".rjust(width)
 
             size /= 1024
@@ -138,8 +136,8 @@ class HttpClient:
     def generate_progress_prefix(self, percentage):
         return f"{percentage}% |".rjust(6)
 
-    def generate_progress_suffix(self, now_downloaded_plus_file_size, total_to_download, speed, estimated_time):
-        return f"{self.human_readable_size(now_downloaded_plus_file_size)}/{self.human_readable_size(total_to_download)}{self.human_readable_size(speed)}/s{self.human_readable_time(estimated_time)}"
+    def generate_progress_suffix(self, now_downloaded_plus_file_size, speed, estimated_time):
+        return f"{self.human_readable_size(now_downloaded_plus_file_size)}/{self.human_readable_size(self.total_to_download)}{self.human_readable_size(speed)}/s{self.human_readable_time(estimated_time)}"
 
     def calculate_progress_bar_width(self, progress_prefix, progress_suffix):
         progress_bar_width = self.get_terminal_width() - len(progress_prefix) - len(progress_suffix) - 3
@@ -172,7 +170,7 @@ class HttpClient:
         progress_prefix = self.generate_progress_prefix(percentage)
         speed = self.calculate_speed(self.now_downloaded, self.start_time)
         tim = (self.total_to_download - self.now_downloaded) // speed
-        progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, self.total_to_download, speed, tim)
+        progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, speed, tim)
         progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix)
         progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
         self.print_progress(progress_prefix, progress_bar, progress_suffix)
