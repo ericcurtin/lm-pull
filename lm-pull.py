@@ -183,7 +183,20 @@ class HttpClient:
 
 def download(url, headers, output_file, progress, response_str=None):
     http = HttpClient()
+
     return http.init(url, headers, output_file, progress, response_str)
+
+def fetch_checksum_from_api(url):
+    """Fetch the SHA-256 checksum from the model's metadata API."""
+    with urllib.request.urlopen(url) as response:
+        data = response.read().decode()
+
+    # Extract the SHA-256 checksum from the `oid sha256` line
+    for line in data.splitlines():
+        if line.startswith("oid sha256:"):
+            return line.split(":", 1)[1].strip()
+
+    raise ValueError("SHA-256 checksum not found in the API response.")
 
 def huggingface_dl(model, headers, bn):
     pos = model.find('/')
@@ -194,19 +207,69 @@ def huggingface_dl(model, headers, bn):
     hfr = model[:pos]
     hff = model[pos + 1:]
     url = f"https://huggingface.co/{hfr}/resolve/main/{hff}"
-    return download(url, headers, bn, True)
+    download(url, headers, bn, True)
+
+    # Fetch the SHA-256 checksum from the API
+    cs_url = f"https://huggingface.co/{self.directory}/raw/main/{self.filename}"
+    try:
+        sha256_checksum = fetch_checksum_from_api(cs_url)
+    except urllib.error.HTTPError as e:
+        raise KeyError(f"failed to pull {cs_url}: " + str(e).strip("'"))
+    except urllib.error.URLError as e:
+        raise KeyError(f"failed to pull {cs_url}: " + str(e).strip("'"))
+
+    while not verify_checksum(url):
+        print(f"Checksum mismatch for blob {url}, retrying download...")
+        download(url, headers, bn, True)
+
+    return 0
+
+def verify_checksum(filename, sha256_checksum=None):
+    """
+    Verifies if the SHA-256 checksum of a file matches the checksum provided in
+    the filename.
+
+    Args:
+    filename (str): The filename containing the checksum prefix
+                    (e.g., "sha256:<checksum>")
+
+    Returns:
+    bool: True if the checksum matches, False otherwise.
+    """
+
+    if not os.path.exists(filename):
+        return False
+
+    # Check if the filename starts with "sha256:"
+    fn_base = os.path.basename(filename)
+    if not fn_base.startswith("sha256:"):
+        raise ValueError(f"filename does not start with 'sha256:': {fn_base}")
+
+    # Extract the expected checksum from the filename
+    expected_checksum = fn_base.split(":")[1]
+    if len(expected_checksum) != 64:
+        raise ValueError("invalid checksum length in filename")
+
+    # Calculate the SHA-256 checksum of the file contents
+    sha256_hash = hashlib.sha256()
+    with open(filename, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+
+    # Compare the checksums
+    return sha256_hash.hexdigest() == expected_checksum
 
 def ollama_dl(model, headers, bn):
     if '/' not in model:
         model = "library/" + model
 
-    model_tag = "latest"
+    tag = "latest"
     colon_pos = model.find(':')
     if colon_pos != -1:
-        model_tag = model[colon_pos + 1:]
+        tag = model[colon_pos + 1:]
         model = model[:colon_pos]
 
-    manifest_url = f"https://registry.ollama.ai/v2/{model}/manifests/{model_tag}"
+    manifest_url = f"https://registry.ollama.ai/v2/{model}/manifests/{tag}"
     manifest_str = []
     ret = download(manifest_url, headers, "", False, manifest_str)
     if ret:
@@ -230,7 +293,12 @@ def ollama_dl(model, headers, bn):
             break
 
     blob_url = f"https://registry.ollama.ai/v2/{model}/blobs/{layer}"
-    return download(blob_url, headers, bn, True)
+    download(blob_url, headers, bn, True)
+    while not verify_checksum(blob_url):
+        print(f"Checksum mismatch for blob {blob_url}, retrying download...")
+        download(blob_url, headers, bn, True)
+
+    return 0
 
 def print_usage():
     print(
@@ -263,17 +331,17 @@ def main():
     }
 
     if model.startswith("https://"):
-        download(model, {}, bn, True)
+        return download(model, {}, bn, True)
     elif model.startswith("hf://") or model.startswith("huggingface://"):
         model = model.split("://", 1)[1]
-        huggingface_dl(model, headers, bn)
+
+        return huggingface_dl(model, headers, bn)
     elif model.startswith("ollama://"):
         model = model.split("://", 1)[1]
-        ollama_dl(model, headers, bn)
-    else:
-        ollama_dl(model, headers, bn)
 
-    return 0
+        return ollama_dl(model, headers, bn)
+
+    return ollama_dl(model, headers, bn)
 
 if __name__ == "__main__":
     main()
