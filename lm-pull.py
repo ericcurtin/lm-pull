@@ -336,6 +336,10 @@ def main():
         model = model.split("://", 1)[1]
 
         return huggingface_dl(model, headers, bn)
+    elif model.startswith("hf.co/"):
+        model = model.split("hf.co/", 1)[1]
+
+        return huggingface_dl(model, headers, bn);
     elif model.startswith("ollama://"):
         model = model.split("://", 1)[1]
 
