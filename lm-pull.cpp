@@ -483,13 +483,13 @@ int main(int argc, char* argv[]) {
     if (starts_with(model, "https://")) {
         ret = download(model, {}, bn, true);
     } else if (starts_with(model, "hf://") || starts_with(model, "huggingface://")) {
-        rm_substring(model_, "://");
+        rm_substring(model, "://");
         ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "hf.co/")) {
-        rm_substring(model_, "hf.co/");
+        rm_substring(model, "hf.co/");
         ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "ollama://")) {
-        rm_substring(model_, "://");
+        rm_substring(model, "://");
         ret = ollama_dl(model, headers, bn);
     } else {
         ret = ollama_dl(model, headers, bn);
