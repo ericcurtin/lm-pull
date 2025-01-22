@@ -489,20 +489,21 @@ int main(int argc, char* argv[]) {
     const std::vector<std::string> headers = { "--header",
                                                "Accept: application/vnd.docker.distribution.manifest.v2+json" };
 
+    int ret = 0;
     if (starts_with(model, "https://")) {
-        download(model, {}, bn, true);
+        ret = download(model, {}, bn, true);
     } else if (starts_with(model, "hf://") || starts_with(model, "huggingface://")) {
         remove_proto(model);
-        huggingface_dl(model, headers, bn);
+        ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "hf.co/")) {
         remove_hf_co(model);
-        huggingface_dl(model, headers, bn);
+        ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "ollama://")) {
         remove_proto(model);
-        ollama_dl(model, headers, bn);
+        ret = ollama_dl(model, headers, bn);
     } else {
-        ollama_dl(model, headers, bn);
+        ret = ollama_dl(model, headers, bn);
     }
 
-  return 0;
+    return ret;
 }
