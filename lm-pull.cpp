@@ -73,23 +73,13 @@ static bool starts_with(const std::string& str, const std::string& prefix) {
   return str.rfind(prefix, 0) == 0;
 }
 
-static int remove_proto(std::string& model_) {
-  const std::string::size_type pos = model_.find("://");
-  if (pos == std::string::npos) {
-    return 1;
-  }
-
-  model_ = model_.substr(pos + sizeof("://") - 1);  // Skip past "://"
-  return 0;
-}
-
-static int remove_hf_co(std::string & model_) {
-    const std::string::size_type pos = model_.find("hf.co/");
+static int rm_substring(std::string& model_, const std::string& substring) {
+    const std::string::size_type pos = model_.find(substring);
     if (pos == std::string::npos) {
         return 1;
     }
 
-    model_ = model_.substr(pos + sizeof("hf.co/") - 1);  // Skip past "hf.co/"
+    model_ = model_.substr(pos + substring.size());  // Skip past the substring
     return 0;
 }
 
@@ -493,13 +483,13 @@ int main(int argc, char* argv[]) {
     if (starts_with(model, "https://")) {
         ret = download(model, {}, bn, true);
     } else if (starts_with(model, "hf://") || starts_with(model, "huggingface://")) {
-        remove_proto(model);
+        rm_substring(model_, "://");
         ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "hf.co/")) {
-        remove_hf_co(model);
+        rm_substring(model_, "hf.co/");
         ret = huggingface_dl(model, headers, bn);
     } else if (starts_with(model, "ollama://")) {
-        remove_proto(model);
+        rm_substring(model_, "://");
         ret = ollama_dl(model, headers, bn);
     } else {
         ret = ollama_dl(model, headers, bn);
