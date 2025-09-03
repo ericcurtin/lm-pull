@@ -411,6 +411,86 @@ int huggingface_dl(const std::string& model,
   return download(url, headers, bn, true);
 }
 
+int docker_dl(std::string& model,
+              const std::vector<std::string> headers,
+              const std::string& bn);
+
+int docker_dl(std::string& model,
+              const std::vector<std::string> headers,
+              const std::string& bn) {
+  std::string model_tag = "latest";
+  size_t colon_pos = model.find(':');
+  if (colon_pos != std::string::npos) {
+    model_tag = model.substr(colon_pos + 1);
+    model = model.substr(0, colon_pos);
+  }
+
+  // Get authentication token for Docker Hub
+  std::string auth_url = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:" + model + ":pull";
+  std::string auth_response;
+  int auth_ret = download(auth_url, {}, "", false, &auth_response);
+  if (auth_ret) {
+    printe("Failed to get authentication token\n");
+    return auth_ret;
+  }
+
+  nlohmann::json auth_json = nlohmann::json::parse(auth_response);
+  if (!auth_json.contains("token")) {
+    printe("No token found in authentication response\n");
+    return 1;
+  }
+
+  std::string token = auth_json["token"];
+  std::vector<std::string> auth_headers = headers;
+  auth_headers.push_back("--header");
+  auth_headers.push_back("Authorization: Bearer " + token);
+
+  std::string manifest_url =
+      "https://registry-1.docker.io/v2/" + model + "/manifests/" + model_tag;
+  std::string manifest_str;
+  const int ret = download(manifest_url, auth_headers, "", false, &manifest_str);
+  if (ret) {
+    return ret;
+  }
+
+  nlohmann::json manifest = nlohmann::json::parse(manifest_str);
+  std::string layer;
+  size_t max_size = 0;
+  
+  // First, try to find a layer with GGUF mediaType
+  for (const auto& l : manifest["layers"]) {
+    if (l.contains("mediaType")) {
+      std::string mediaType = l["mediaType"];
+      if (mediaType.find("gguf") != std::string::npos || mediaType.find("GGUF") != std::string::npos) {
+        layer = l["digest"];
+        break;
+      }
+    }
+  }
+  
+  // If no GGUF mediaType found, find the largest layer
+  if (layer.empty()) {
+    for (const auto& l : manifest["layers"]) {
+      if (l.contains("size")) {
+        size_t layer_size = l["size"];
+        if (layer_size > max_size) {
+          max_size = layer_size;
+          layer = l["digest"];
+        }
+      }
+    }
+  }
+
+  if (layer.empty()) {
+    printe("No suitable layer found in manifest\n");
+    return 1;
+  }
+
+  std::string blob_url =
+      "https://registry-1.docker.io/v2/" + model + "/blobs/" + layer;
+  return download(blob_url, auth_headers, bn, true);
+}
+
 int ollama_dl(std::string& model,
               const std::vector<std::string> headers,
               const std::string& bn) {
@@ -456,6 +536,8 @@ static void print_usage() {
       "  lm-pull llama3\n"
       "  lm-pull ollama://granite-code\n"
       "  lm-pull ollama://smollm:135m\n"
+      "  lm-pull docker://ai/smollm2\n"
+      "  lm-pull docker://ai/smollm2:latest\n"
       "  lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q2_K.gguf\n"
       "  lm-pull "
       "huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/"
@@ -488,6 +570,9 @@ int main(int argc, char* argv[]) {
     } else if (starts_with(model, "hf.co/")) {
         rm_substring(model, "hf.co/");
         ret = huggingface_dl(model, headers, bn);
+    } else if (starts_with(model, "docker://")) {
+        rm_substring(model, "://");
+        ret = docker_dl(model, headers, bn);
     } else if (starts_with(model, "ollama://")) {
         rm_substring(model, "://");
         ret = ollama_dl(model, headers, bn);
