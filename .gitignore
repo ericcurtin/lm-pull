@@ -1,0 +1,20 @@
+# Build directories
+build/
+*.o
+*.so
+*.a
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.partial

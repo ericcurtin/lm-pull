@@ -411,6 +411,53 @@ int huggingface_dl(const std::string& model,
   return download(url, headers, bn, true);
 }
 
+int docker_dl(std::string& model,
+              const std::vector<std::string> headers,
+              const std::string& bn);
+
+int docker_dl(std::string& model,
+              const std::vector<std::string> headers,
+              const std::string& bn) {
+  std::string model_tag = "latest";
+  size_t colon_pos = model.find(':');
+  if (colon_pos != std::string::npos) {
+    model_tag = model.substr(colon_pos + 1);
+    model = model.substr(0, colon_pos);
+  }
+
+  std::string manifest_url =
+      "https://registry-1.docker.io/v2/" + model + "/manifests/" + model_tag;
+  std::string manifest_str;
+  const int ret = download(manifest_url, headers, "", false, &manifest_str);
+  if (ret) {
+    return ret;
+  }
+
+  nlohmann::json manifest = nlohmann::json::parse(manifest_str);
+  std::string layer;
+  size_t max_size = 0;
+  
+  // Find the largest layer, which is likely the GGUF file
+  for (const auto& l : manifest["layers"]) {
+    if (l.contains("size")) {
+      size_t layer_size = l["size"];
+      if (layer_size > max_size) {
+        max_size = layer_size;
+        layer = l["digest"];
+      }
+    }
+  }
+
+  if (layer.empty()) {
+    printe("No suitable layer found in manifest\n");
+    return 1;
+  }
+
+  std::string blob_url =
+      "https://registry-1.docker.io/v2/" + model + "/blobs/" + layer;
+  return download(blob_url, headers, bn, true);
+}
+
 int ollama_dl(std::string& model,
               const std::vector<std::string> headers,
               const std::string& bn) {
@@ -456,6 +503,8 @@ static void print_usage() {
       "  lm-pull llama3\n"
       "  lm-pull ollama://granite-code\n"
       "  lm-pull ollama://smollm:135m\n"
+      "  lm-pull docker://ai/smollm2\n"
+      "  lm-pull docker://ai/smollm2:latest\n"
       "  lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q2_K.gguf\n"
       "  lm-pull "
       "huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/"
@@ -488,6 +537,9 @@ int main(int argc, char* argv[]) {
     } else if (starts_with(model, "hf.co/")) {
         rm_substring(model, "hf.co/");
         ret = huggingface_dl(model, headers, bn);
+    } else if (starts_with(model, "docker://")) {
+        rm_substring(model, "://");
+        ret = docker_dl(model, headers, bn);
     } else if (starts_with(model, "ollama://")) {
         rm_substring(model, "://");
         ret = ollama_dl(model, headers, bn);

@@ -259,6 +259,50 @@ def verify_checksum(filename, sha256_checksum=None):
     # Compare the checksums
     return sha256_hash.hexdigest() == expected_checksum
 
+def docker_dl(model, headers, bn):
+    tag = "latest"
+    colon_pos = model.find(':')
+    if colon_pos != -1:
+        tag = model[colon_pos + 1:]
+        model = model[:colon_pos]
+
+    manifest_url = f"https://registry-1.docker.io/v2/{model}/manifests/{tag}"
+    manifest_str = []
+    ret = download(manifest_url, headers, "", False, manifest_str)
+    if ret:
+        return ret
+
+    if not manifest_str:
+        print("Error: Manifest string is empty.", file=sys.stderr)
+        return 1
+
+    try:
+        manifest = json.loads("".join(manifest_str))
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}", file=sys.stderr)
+        print(f"Manifest string: {''.join(manifest_str)}", file=sys.stderr)
+        return 1
+
+    layer = ""
+    max_size = 0
+    
+    # Find the largest layer, which is likely the GGUF file
+    for l in manifest["layers"]:
+        if "size" in l:
+            layer_size = l["size"]
+            if layer_size > max_size:
+                max_size = layer_size
+                layer = l["digest"]
+
+    if not layer:
+        print("Error: No suitable layer found in manifest.", file=sys.stderr)
+        return 1
+
+    blob_url = f"https://registry-1.docker.io/v2/{model}/blobs/{layer}"
+    download(blob_url, headers, bn, True)
+
+    return 0
+
 def ollama_dl(model, headers, bn):
     if '/' not in model:
         model = "library/" + model
@@ -309,6 +353,8 @@ def print_usage():
         "  lm-pull llama3\n"
         "  lm-pull ollama://granite-code\n"
         "  lm-pull ollama://smollm:135m\n"
+        "  lm-pull docker://ai/smollm2\n"
+        "  lm-pull docker://ai/smollm2:latest\n"
         "  lm-pull hf://QuantFactory/SmolLM-135M-GGUF/SmolLM-135M.Q2_K.gguf\n"
         "  lm-pull huggingface://bartowski/SmolLM-1.7B-Instruct-v0.2-GGUF/"
         "SmolLM-1.7B-Instruct-v0.2-IQ3_M.gguf\n"
@@ -340,6 +386,10 @@ def main():
         model = model.split("hf.co/", 1)[1]
 
         return huggingface_dl(model, headers, bn);
+    elif model.startswith("docker://"):
+        model = model.split("://", 1)[1]
+
+        return docker_dl(model, headers, bn)
     elif model.startswith("ollama://"):
         model = model.split("://", 1)[1]
 
