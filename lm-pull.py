@@ -165,11 +165,17 @@ class HttpClient:
 
     def update_progress(self, chunk_size):
         self.now_downloaded += chunk_size
+        if self.total_to_download == 0:
+            return  # Skip progress if total size is unknown
+        
         now_downloaded_plus_file_size = self.now_downloaded + self.file_size
         percentage = (now_downloaded_plus_file_size * 100) // self.total_to_download
         progress_prefix = self.generate_progress_prefix(percentage)
         speed = self.calculate_speed(self.now_downloaded, self.start_time)
-        tim = (self.total_to_download - self.now_downloaded) // speed
+        if speed > 0:
+            tim = (self.total_to_download - self.now_downloaded) // speed
+        else:
+            tim = 0
         progress_suffix = self.generate_progress_suffix(now_downloaded_plus_file_size, speed, tim)
         progress_bar_width = self.calculate_progress_bar_width(progress_prefix, progress_suffix)
         progress_bar = self.generate_progress_bar(progress_bar_width, percentage)
@@ -179,6 +185,8 @@ class HttpClient:
     def calculate_speed(self, now_downloaded, start_time):
         now = time.time()
         elapsed_seconds = now - start_time
+        if elapsed_seconds == 0:
+            return 1  # Avoid division by zero
         return now_downloaded / elapsed_seconds
 
 def download(url, headers, output_file, progress, response_str=None):
@@ -266,9 +274,35 @@ def docker_dl(model, headers, bn):
         tag = model[colon_pos + 1:]
         model = model[:colon_pos]
 
+    # Get authentication token for Docker Hub
+    auth_url = f"https://auth.docker.io/token?service=registry.docker.io&scope=repository:{model}:pull"
+    auth_response = []
+    ret = download(auth_url, {}, "", False, auth_response)
+    if ret:
+        print("Error: Failed to get authentication token.", file=sys.stderr)
+        return ret
+
+    if not auth_response:
+        print("Error: Empty authentication response.", file=sys.stderr)
+        return 1
+
+    try:
+        auth_json = json.loads("".join(auth_response))
+    except json.JSONDecodeError as e:
+        print(f"Error decoding auth JSON: {e}", file=sys.stderr)
+        return 1
+
+    if "token" not in auth_json:
+        print("Error: No token found in authentication response.", file=sys.stderr)
+        return 1
+
+    token = auth_json["token"]
+    auth_headers = headers.copy()
+    auth_headers["Authorization"] = f"Bearer {token}"
+
     manifest_url = f"https://registry-1.docker.io/v2/{model}/manifests/{tag}"
     manifest_str = []
-    ret = download(manifest_url, headers, "", False, manifest_str)
+    ret = download(manifest_url, auth_headers, "", False, manifest_str)
     if ret:
         return ret
 
@@ -286,20 +320,29 @@ def docker_dl(model, headers, bn):
     layer = ""
     max_size = 0
     
-    # Find the largest layer, which is likely the GGUF file
+    # First, try to find a layer with GGUF mediaType
     for l in manifest["layers"]:
-        if "size" in l:
-            layer_size = l["size"]
-            if layer_size > max_size:
-                max_size = layer_size
+        if "mediaType" in l:
+            media_type = l["mediaType"]
+            if "gguf" in media_type.lower():
                 layer = l["digest"]
+                break
+    
+    # If no GGUF mediaType found, find the largest layer
+    if not layer:
+        for l in manifest["layers"]:
+            if "size" in l:
+                layer_size = l["size"]
+                if layer_size > max_size:
+                    max_size = layer_size
+                    layer = l["digest"]
 
     if not layer:
         print("Error: No suitable layer found in manifest.", file=sys.stderr)
         return 1
 
     blob_url = f"https://registry-1.docker.io/v2/{model}/blobs/{layer}"
-    download(blob_url, headers, bn, True)
+    download(blob_url, auth_headers, bn, True)
 
     return 0
 

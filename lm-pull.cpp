@@ -425,10 +425,30 @@ int docker_dl(std::string& model,
     model = model.substr(0, colon_pos);
   }
 
+  // Get authentication token for Docker Hub
+  std::string auth_url = "https://auth.docker.io/token?service=registry.docker.io&scope=repository:" + model + ":pull";
+  std::string auth_response;
+  int auth_ret = download(auth_url, {}, "", false, &auth_response);
+  if (auth_ret) {
+    printe("Failed to get authentication token\n");
+    return auth_ret;
+  }
+
+  nlohmann::json auth_json = nlohmann::json::parse(auth_response);
+  if (!auth_json.contains("token")) {
+    printe("No token found in authentication response\n");
+    return 1;
+  }
+
+  std::string token = auth_json["token"];
+  std::vector<std::string> auth_headers = headers;
+  auth_headers.push_back("--header");
+  auth_headers.push_back("Authorization: Bearer " + token);
+
   std::string manifest_url =
       "https://registry-1.docker.io/v2/" + model + "/manifests/" + model_tag;
   std::string manifest_str;
-  const int ret = download(manifest_url, headers, "", false, &manifest_str);
+  const int ret = download(manifest_url, auth_headers, "", false, &manifest_str);
   if (ret) {
     return ret;
   }
@@ -437,13 +457,26 @@ int docker_dl(std::string& model,
   std::string layer;
   size_t max_size = 0;
   
-  // Find the largest layer, which is likely the GGUF file
+  // First, try to find a layer with GGUF mediaType
   for (const auto& l : manifest["layers"]) {
-    if (l.contains("size")) {
-      size_t layer_size = l["size"];
-      if (layer_size > max_size) {
-        max_size = layer_size;
+    if (l.contains("mediaType")) {
+      std::string mediaType = l["mediaType"];
+      if (mediaType.find("gguf") != std::string::npos || mediaType.find("GGUF") != std::string::npos) {
         layer = l["digest"];
+        break;
+      }
+    }
+  }
+  
+  // If no GGUF mediaType found, find the largest layer
+  if (layer.empty()) {
+    for (const auto& l : manifest["layers"]) {
+      if (l.contains("size")) {
+        size_t layer_size = l["size"];
+        if (layer_size > max_size) {
+          max_size = layer_size;
+          layer = l["digest"];
+        }
       }
     }
   }
@@ -455,7 +488,7 @@ int docker_dl(std::string& model,
 
   std::string blob_url =
       "https://registry-1.docker.io/v2/" + model + "/blobs/" + layer;
-  return download(blob_url, headers, bn, true);
+  return download(blob_url, auth_headers, bn, true);
 }
 
 int ollama_dl(std::string& model,
